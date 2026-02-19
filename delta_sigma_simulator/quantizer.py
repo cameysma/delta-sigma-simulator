@@ -23,7 +23,7 @@ class QuantizerDelayHysteresis(Quantizer):
         # Current output value
         self.v = 1.0
         # Time tolerance for root finding
-        self.t_tol = 1e-30
+        self.t_tol = 5e-324
 
     def next(self, simulate_filter, dt):
         dt = self.t_d + brentq(lambda t: simulate_filter(t, self.v)[0] - self.v_s * self.v, 0, 2 * dt, xtol=self.t_tol)

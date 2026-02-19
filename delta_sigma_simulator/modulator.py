@@ -29,8 +29,13 @@ class DeltaSigmaModulator:
         self.t = 0.0
         # Initial condition of the filter output
         self.y = np.zeros_like(self.filter.p)
-        self.y[0] = -1.0  # Otherwise first zero crossing is not detected
         self.quantizer.reset()
+
+        # Estimate quantization time
+        a = self.simulate_filter(0, self.quantizer.v, 0)[0]
+
+        # Force zero-crossing
+        self.y[0] -= a + 1e-6
 
         # Simulation output
         if filter is not None:
@@ -41,16 +46,21 @@ class DeltaSigmaModulator:
             y = np.zeros_like(t)
             # Unfiltered output
             v = np.zeros_like(t)
+            # Edge times
+            e = np.array([])
 
         # Piecewise linear output
         pwl_file = open(pwl_filename, "w") if pwl_filename is not None else None
 
         while run:
             # Estimate quantization time
-            a = self.simulate_filter(0, self.quantizer.v, 0)[0]
-            b = self.simulate_filter(0, self.quantizer.v, 1)[0]
+            dt = 0
 
-            dt = -a / b
+            while np.sign(self.simulate_filter(2 * dt, self.quantizer.v, 0)) == np.sign(self.simulate_filter(0, self.quantizer.v, 0)):
+                a = self.simulate_filter(dt, self.quantizer.v, 0)
+                b = self.simulate_filter(dt, self.quantizer.v, 1)
+
+                dt += -a / b
 
             # Find exact quantization time
             dt = self.quantizer.next(self.simulate_filter, dt)
@@ -63,6 +73,8 @@ class DeltaSigmaModulator:
                     t[t_mask] - self.t, self.quantizer.v_prev
                 )
                 v[t_mask] = self.quantizer.v_prev
+
+                e = np.append(e, self.t)
             else:
                 w[self.t <= t] += (
                     2
@@ -91,6 +103,6 @@ class DeltaSigmaModulator:
                 pwl_file.write(f"{self.t + pwl_tt / 2:.12e} {self.quantizer.v:.12e}\n")
 
         if filter is None:
-            return y, v
+            return y, v, e
         else:
             return w
