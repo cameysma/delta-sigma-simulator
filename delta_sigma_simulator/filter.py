@@ -1,7 +1,7 @@
 import numpy as np
 from numpy.polynomial import Polynomial
 
-import matplotlib.pyplot as plt
+from .wave import SineWave, BinaryWave, FilteredBinaryWave
 
 
 class Filter:
@@ -10,8 +10,12 @@ class Filter:
         self.p = p
         self.k = k
 
-        self.num = Polynomial.fromroots(self.z) if len(self.z) > 0 else Polynomial([1.0])
-        self.den = Polynomial.fromroots(self.p) if len(self.p) > 0 else Polynomial([1.0])
+        self.num = (
+            Polynomial.fromroots(self.z) if len(self.z) > 0 else Polynomial([1.0])
+        )
+        self.den = (
+            Polynomial.fromroots(self.p) if len(self.p) > 0 else Polynomial([1.0])
+        )
 
         self.residues = self.k * self.num(self.p) / self.den.deriv()(self.p)
 
@@ -21,9 +25,20 @@ class Filter:
         if len(z) > len(p):
             raise NotImplementedError("Improper transfer functions are not supported.")
 
-    def frequency_response(self, f):
-        f = np.atleast_1d(f)
-        s = 1j * 2 * np.pi * f
+    def __call__(self, u):
+        if isinstance(u, SineWave):
+            return SineWave(
+                self.frequency_response(u.angular_frequencies) * u.phasors,
+                u.fundamental_frequency,
+            )
+        if isinstance(u, BinaryWave):
+            return FilteredBinaryWave(u.edges, self, u.sign)
+        else:
+            raise NotImplementedError("Only SineWave and BinaryWave are supported.")
+
+    def frequency_response(self, omega):
+        omega = np.atleast_1d(omega)
+        s = 1.0j * omega
 
         num_eval = self.num(s)
         den_eval = self.den(s)
@@ -42,25 +57,15 @@ class Filter:
         return y
 
     def step_response(self, t, n=0):
-        return Filter(self.z, np.concatenate(([0], self.p)), self.k).impulse_response(t, n)
+        return Filter(self.z, np.concatenate(([0], self.p)), self.k).impulse_response(
+            t, n
+        )
 
     def natural_response(self, t, y, n=0):
         c = np.linalg.solve(np.vander(self.p, increasing=True).T, y)
 
         y = np.sum(
             c[:, None] * self.p[:, None] ** n * np.exp(self.p[:, None] * t),
-            axis=0,
-        ).real
-
-        y[t < 0] = 0.0
-
-        return y
-
-    def sinusoidal_response(self, f, t, n=0):
-        h = self.frequency_response(f)
-
-        y = np.sum(
-            h[:, None] * (2 * np.pi * f) ** n * np.exp(1j * (2 * np.pi * f * t + n * np.pi / 2)),
             axis=0,
         ).real
 
@@ -90,7 +95,12 @@ class FilterSecondOrder(Filter):
 class FilterButterworth(Filter):
     def __init__(self, n, f):
         z = np.array([])
-        p = 2 * np.pi * f * np.exp(1j * np.pi * (np.arange(n) + 0.5) / n + 1j * np.pi / 2)
+        p = (
+            2
+            * np.pi
+            * f
+            * np.exp(1j * np.pi * (np.arange(n) + 0.5) / n + 1j * np.pi / 2)
+        )
         k = (2 * np.pi * f) ** n
 
         super().__init__(z, p, k)

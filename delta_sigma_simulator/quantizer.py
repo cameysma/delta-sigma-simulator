@@ -4,7 +4,7 @@ from scipy.optimize import brentq
 
 
 class Quantizer:
-    def next(self, y, dt):
+    def next(self, input_signal):
         raise NotImplementedError
 
     def reset(self):
@@ -23,10 +23,19 @@ class QuantizerDelayHysteresis(Quantizer):
         # Current output value
         self.v = 1.0
         # Time tolerance for root finding
-        self.t_tol = 5e-324
+        self.t_tol = 5e-32
+        # Time step for initial root finding
+        self.t_step = 10e-12
 
-    def next(self, simulate_filter, dt):
-        dt = self.t_d + brentq(lambda t: simulate_filter(t, self.v)[0] - self.v_s * self.v, 0, 2 * dt, xtol=self.t_tol)
+    def next(self, input_signal):
+        y = lambda t: input_signal(t, self.v, 0)[0] - self.v_s * self.v
+
+        dt = 0
+
+        while y(dt) * y(0) > 0:
+            dt += self.t_step
+
+        dt = self.t_d + brentq(y, 0, dt, xtol=self.t_tol)
 
         self.v_prev = self.v
         self.v *= -1.0
@@ -45,10 +54,12 @@ class QuantizerClock(Quantizer):
         # Standard deviation of the input noise
         self.n = n
 
-    def next(self, simulate_filter, dt=0.0):
+    def next(self, input_signal):
         dt = 1 / self.f_c
 
         self.v_prev = self.v
-        self.v = -1.0 if simulate_filter(dt, self.v)[0] < self.n * np.random.randn() else +1.0
+        self.v = (
+            -1.0 if input_signal(dt, self.v)[0] < self.n * np.random.randn() else +1.0
+        )
 
         return dt

@@ -1,18 +1,21 @@
 import numpy as np
-from numpy.polynomial import Polynomial
+import matplotlib.pyplot as plt
+
+from .wave import BinaryWave
 
 
 class DeltaSigmaModulator:
-    def __init__(self, filter, quantizer) -> None:
+    def __init__(self, filter, quantizer):
         self.filter = filter
         self.quantizer = quantizer
 
     def simulate_filter(self, dt, v, n=0):
         dt = np.atleast_1d(dt)
+
         y = np.zeros_like(dt, dtype=np.float64)
 
-        for i in range(len(self.u)):
-            y += self.filter.sinusoidal_response(self.f * i, self.t + dt, n) * self.u[i]
+        for ui in self.u:
+            y += self.filter(ui).derivative(n)(self.t + dt)
 
         y += self.filter.step_response(dt, n) * -v
 
@@ -20,89 +23,65 @@ class DeltaSigmaModulator:
 
         return y
 
-    def simulate(self, u, f, t, filter=None, run=True, pwl_filename=None, pwl_tt=1e-12):
-        # Input signal u[0] + u[1] * cos(2 * pi * f * t) + ...
-        self.u = np.atleast_1d(u)
-        self.f = f
+    def step(self, plot=False):
+        dt = self.quantizer.next(self.simulate_filter)
 
-        # Current time
+        if plot:
+            print(
+                f"{self.t:.2e} s: dt = {dt:.2e} s, v_prev = {self.quantizer.v_prev:.2f}, v = {self.quantizer.v:.2f}"
+            )
+            print(f"Filter state: {self.y}")
+
+            t = np.linspace(0, 2 * dt, 1000)
+            y = self.simulate_filter(t, self.quantizer.v_prev, 0)
+            plt.plot((self.t + t) * 1e9, y, c="k")
+            plt.axvline((self.t + dt - self.quantizer.t_d) * 1e9, c="r", ls="--")
+            plt.xlabel("Time [ns]")
+            plt.ylabel("Filter Output")
+            plt.grid()
+
+        # Update state
+        self.y = np.array(
+            [
+                self.filter.step_response(dt, i)[0] * -self.quantizer.v_prev
+                + self.filter.natural_response(dt, self.y, i)[0]
+                for i in range(len(self.y))
+            ]
+        )
+
+        self.t += dt
+
+    def reset(self):
+        # Reset the current time, filter state, and quantizer state
         self.t = 0.0
-        # Initial condition of the filter output
         self.y = np.zeros_like(self.filter.p)
         self.quantizer.reset()
 
-        # Estimate quantization time
+        # Adjust the initial filter state to ensure the first quantization event occurs close to t=0
         a = self.simulate_filter(0, self.quantizer.v, 0)[0]
+        self.y[0] -= a
 
-        # Force zero-crossing
-        self.y[0] -= a + 1e-6
+    def simulate(self, u, t, run=True, run_until=-1):
+        # List of input signals, e.g., SineWave, BinaryWave, or a DC value
+        self.u = np.atleast_1d(u)
 
-        # Simulation output
-        if filter is not None:
-            # Filtered output
-            w = -np.ones_like(t)
-        else:
-            # Error
-            y = np.zeros_like(t)
-            # Unfiltered output
-            v = np.zeros_like(t)
-            # Edge times
-            e = np.array([])
+        # Bring the modulator to the initial state
+        self.reset()
 
-        # Piecewise linear output
-        pwl_file = open(pwl_filename, "w") if pwl_filename is not None else None
+        # Edge times of the output binary wave
+        e = np.array([0])
 
         while run:
-            # Estimate quantization time
-            dt = 0
+            self.step()
 
-            while np.sign(self.simulate_filter(2 * dt, self.quantizer.v, 0)) == np.sign(self.simulate_filter(0, self.quantizer.v, 0)):
-                a = self.simulate_filter(dt, self.quantizer.v, 0)
-                b = self.simulate_filter(dt, self.quantizer.v, 1)
+            e = np.append(e, self.t)
 
-                dt += -a / b
-
-            # Find exact quantization time
-            dt = self.quantizer.next(self.simulate_filter, dt)
-
-            # Save simulation output
-            t_mask = (self.t <= t) & (t < self.t + dt)
-
-            if filter is None:
-                y[t_mask] = self.simulate_filter(
-                    t[t_mask] - self.t, self.quantizer.v_prev
-                )
-                v[t_mask] = self.quantizer.v_prev
-
-                e = np.append(e, self.t)
-            else:
-                w[self.t <= t] += (
-                    2
-                    * filter.step_response(t[self.t <= t] - self.t)
-                    * self.quantizer.v_prev
-                )
-
-            # Update state
-            self.y = np.array(
-                [
-                    self.filter.step_response(dt, i)[0] * -self.quantizer.v_prev
-                    + self.filter.natural_response(dt, self.y, i)[0]
-                    for i in range(len(self.y))
-                ]
+            print(
+                f"Progress: {len(e)} {self.t:.2e} s / {t:.2e} s [{self.t / t * 100:.2f}%]",
+                end="\r",
             )
 
-            self.t += dt
-
-            if self.t >= t[-1]:
+            if len(e) == run_until or self.t >= t:
                 run = False
 
-            if pwl_file is not None:
-                pwl_file.write(
-                    f"{self.t - pwl_tt / 2:.12e} {self.quantizer.v_prev:.12e}\n"
-                )
-                pwl_file.write(f"{self.t + pwl_tt / 2:.12e} {self.quantizer.v:.12e}\n")
-
-        if filter is None:
-            return y, v, e
-        else:
-            return w
+        return BinaryWave(e)
