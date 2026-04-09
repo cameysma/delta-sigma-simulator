@@ -1,8 +1,6 @@
 import numpy as np
 from numpy.polynomial import Polynomial
 
-from .wave import SineWave, BinaryWave, FilteredBinaryWave
-
 
 class Filter:
     def __init__(self, z, p, k):
@@ -26,19 +24,10 @@ class Filter:
             raise NotImplementedError("Improper transfer functions are not supported.")
 
     def __call__(self, u):
-        if isinstance(u, SineWave):
-            return SineWave(
-                self.frequency_response(u.angular_frequencies) * u.phasors,
-                u.fundamental_frequency,
-            )
-        if isinstance(u, BinaryWave):
-            return FilteredBinaryWave(u.edges, self, u.sign)
-        else:
-            raise NotImplementedError("Only SineWave and BinaryWave are supported.")
+        return u.filter(self)
 
     def frequency_response(self, omega):
-        omega = np.atleast_1d(omega)
-        s = 1.0j * omega
+        s = np.atleast_1d(1.0j * omega)
 
         num_eval = self.num(s)
         den_eval = self.den(s)
@@ -54,7 +43,7 @@ class Filter:
 
         y[t < 0] = 0.0
 
-        return y
+        return y[0] if y.size == 1 else y
 
     def step_response(self, t, n=0):
         return Filter(self.z, np.concatenate(([0], self.p)), self.k).impulse_response(
@@ -71,7 +60,7 @@ class Filter:
 
         y[t < 0] = 0.0
 
-        return y
+        return y[0] if y.size == 1 else y
 
 
 class FilterFirstOrder(Filter):
@@ -126,7 +115,7 @@ class FilterIntegrator(Filter):
 
         y[t < 0] = 0.0
 
-        return y
+        return y[0] if y.size == 1 else y
 
     def natural_response(self, t, y, n=0):
         t = np.atleast_1d(t)
@@ -138,4 +127,9 @@ class FilterIntegrator(Filter):
 
         y[t < 0] = 0.0
 
-        return y
+        return y[0] if y.size == 1 else y
+
+
+class FilterUnit(Filter):
+    def __init__(self):
+        super().__init__(np.array([]), np.array([]), 1.0)

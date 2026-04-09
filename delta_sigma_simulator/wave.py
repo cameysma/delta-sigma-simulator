@@ -1,5 +1,6 @@
 import numpy as np
-import matplotlib.pyplot as plt
+
+from delta_sigma_simulator.filter import FilterUnit
 
 
 class SineWave:
@@ -18,74 +19,120 @@ class SineWave:
             axis=0,
         ).real
 
-    def derivative(self, n=1):
+    def filter(self, h):
         return SineWave(
-            self.phasors * (1.0j * self.angular_frequencies) ** n,
+            self.phasors * h.frequency_response(self.angular_frequencies),
             self.fundamental_frequency,
         )
 
-    def plot(self, osr=32):
-        fs = 2 * len(self.phasors) * self.fundamental_frequency * osr
-
-        t = np.arange(0, 1 / self.fundamental_frequency, 1 / fs)
-
-        plt.plot(t, self(t))
-        plt.xlabel("Time [s]")
-        plt.ylabel("Amplitude")
-
 
 class BinaryWave:
-    def __init__(self, edges, sign=1.0):
-        self.edges = edges
-        self.sign = sign
+    def __init__(self, e, E=1.0, h=None, y=None):
+        """
+        Arguments:
+            e: Array of time points where the signal changes value.
+            E: Amplitude of the binary wave.
+            h: Filter to apply to the binary wave. If None, no filtering is applied.
+        """
+        self.e = np.atleast_1d(e)
+        self.E = E
+        self.h = h if h is not None else FilterUnit()
+
+        # Precompute the output at each edge- to speed up the __call__ method
+        if y is not None:
+            self.y = y
+        else:
+            num_p = len(self.h.p)
+            num_e = len(self.e)
+
+            self.y = np.zeros((num_p, num_e))
+
+            for j in range(num_e - 1):
+                de = self.e[j + 1] - self.e[j]
+
+                s = (-1) ** j * self.E
+
+                for i in range(num_p):
+                    self.y[i, j + 1] += self.h.step_response(de, i) * s
+                    self.y[i, j + 1] += self.h.natural_response(de, self.y[:, j], i)
+
+    def append(self, e):
+        """
+        Append a new edge to the binary wave.
+
+        Arguments:
+            e: The time point where the signal changes value.
+        """
+        num_p = len(self.h.p)
+
+        y = np.zeros((num_p, 1))
+
+        j = len(self.e) - 1
+
+        de = e - self.e[j]
+
+        s = (-1) ** j * self.E
+
+        for i in range(num_p):
+            y[i, 0] += self.h.step_response(de, i) * s
+            y[i, 0] += self.h.natural_response(de, self.y[:, j], i)
+
+        self.e = np.append(self.e, e)
+        self.y = np.append(self.y, y, axis=1)
+
+    def __truediv__(self, other):
+        """
+        Divide the binary wave by a scalar.
+
+        Arguments:
+            other: The scalar to divide by.
+        """
+        return BinaryWave(self.e, self.E / other, self.h, self.y / other)
+
+    def delay(self, tau):
+        """
+        Return a new BinaryWave that is delayed by tau seconds.
+
+        Arguments:
+            tau: The amount of time to delay the binary wave, in seconds.
+        """
+        return BinaryWave(self.e + tau, self.E, self.h, self.y)
+
+    def filter(self, h):
+        """
+        Return a new BinaryWave that is filtered by the given filter.
+
+        Arguments:
+            h: The filter to apply to the binary wave.
+        """
+        if isinstance(self.h, FilterUnit):
+            return BinaryWave(self.e, self.E, h)
+        else:
+            raise NotImplementedError("Filters cannot be cascaded.")
 
     def __call__(self, t):
-        y = np.ones_like(t) * self.sign
+        """
+        Evaluate the binary wave at the given time points.
 
-        for edge in self.edges:
-            y[t >= edge] *= -1.0
-
-        return y
-
-    def plot(self):
-        t = np.repeat(self.edges, 2)
-        y = np.zeros_like(t)
-        y[0::4] = -self.sign
-        y[1::4] = +self.sign
-        y[2::4] = +self.sign
-        y[3::4] = -self.sign
-
-        plt.plot(t, y)
-        plt.xlabel("Time [s]")
-        plt.ylabel("Amplitude")
-
-
-class FilteredBinaryWave(BinaryWave):
-    def __init__(self, edges, filter, sign=1.0, n=0):
-        super().__init__(edges, sign)
-        self.filter = filter
-        self.n = n
-
-    def derivative(self, n=1):
-        return FilteredBinaryWave(self.edges, self.filter, self.sign, self.n + n)
-
-    def __call__(self, t):
+        Arguments:
+            t: Array of time points to evaluate the binary wave at.
+        """
         y = np.zeros_like(t)
 
-        for i, edge in enumerate(self.edges):
-            if i == 0:
+        j = 0
 
-                y[t >= edge] += (
-                    1
-                    * self.filter.step_response(t[t >= edge] - edge, self.n)
-                    * self.sign
-                )
-            else:
-                y[t >= edge] += (
-                    2
-                    * self.filter.step_response(t[t >= edge] - edge, self.n)
-                    * self.sign
-                    * (-1.0) ** i
-                )
+        for i, ti in enumerate(t):
+            if ti < self.e[0]:
+                continue
+
+            while j != len(self.e) - 1 and not (self.e[j] <= ti and ti < self.e[j + 1]):
+                j += 1
+
+            de = ti - self.e[j]
+
+            s = (-1) ** j * self.E
+
+            y[i] += self.h.step_response(de) * s
+            y[i] += self.h.natural_response(de, self.y[:, j])
 
         return y
