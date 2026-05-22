@@ -27,14 +27,18 @@ class SineWave:
 
 
 class BinaryWave:
-    def __init__(self, e, E=1.0, h=None, y=None):
+    def __init__(self, e=None, E=1.0, h=None, y=None):
         """
         Arguments:
             e: Array of time points where the signal changes value.
             E: Amplitude of the binary wave.
             h: Filter to apply to the binary wave. If None, no filtering is applied.
         """
-        self.e = np.atleast_1d(e)
+        if e is None:
+            self.e = np.array([0.0])
+        else:
+            self.e = np.atleast_1d(e)
+
         self.E = E
         self.h = h if h is not None else FilterUnit()
 
@@ -119,14 +123,21 @@ class BinaryWave:
         """
         y = np.zeros_like(t)
 
-        j = 0
-
         for i, ti in enumerate(t):
             if ti < self.e[0]:
+                # If the time point is before the first edge, the output is zero
                 continue
+            elif ti >= self.e[-1]:
+                # If the time point is after the last edge, do not search for the correct edge
+                j = len(self.e) - 1
+            else:
+                # Search for the correct edge using a while loop
+                j = 0
 
-            while j != len(self.e) - 1 and not (self.e[j] <= ti and ti < self.e[j + 1]):
-                j += 1
+                while j != len(self.e) - 1 and not (
+                    self.e[j] <= ti and ti < self.e[j + 1]
+                ):
+                    j += 1
 
             de = ti - self.e[j]
 

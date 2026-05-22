@@ -5,8 +5,12 @@ from .wave import BinaryWave
 
 
 class DeltaSigmaModulator:
-    def __init__(self, h, q):
-        self.h = h
+    def __init__(self, h_v, q, h_u=None):
+        # Feedback filter
+        self.h_v = h_v
+        # Feedin filter
+        self.h_u = h_u if h_u is not None else h_v
+        # Quantizer
         self.q = q
 
     def simulate_filter(self, dt):
@@ -34,12 +38,12 @@ class DeltaSigmaModulator:
 
         self.y_v.y[0, 0] -= a
 
-    def simulate(self, u, t, run=True):
+    def simulate(self, u, t=None, n=None, run=True):
         # List of inputs
         self.u = np.atleast_1d(u)
         # Loop filter outputs
-        self.y_u = np.array([u_i.filter(self.h) for u_i in self.u])
-        self.y_v = BinaryWave([0]).filter(self.h)
+        self.y_u = np.array([u_i.filter(self.h_u) for u_i in self.u])
+        self.y_v = BinaryWave([0]).filter(self.h_v)
 
         self.reset()
 
@@ -49,7 +53,10 @@ class DeltaSigmaModulator:
             # This also updates the corresponding filter output
             self.y_v.append(self.t)
 
-            if self.t >= t:
+            if t is not None and self.t >= t:
+                run = False
+
+            if n is not None and len(self.y_v.e) >= n:
                 run = False
 
         return BinaryWave(self.y_v.e)
