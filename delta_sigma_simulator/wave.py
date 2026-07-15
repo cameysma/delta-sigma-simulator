@@ -42,24 +42,6 @@ class BinaryWave:
         self.E = E
         self.h = h if h is not None else FilterUnit()
 
-        # Precompute the output at each edge- to speed up the __call__ method
-        if y is not None:
-            self.y = y
-        else:
-            num_p = len(self.h.p)
-            num_e = len(self.e)
-
-            self.y = np.zeros((num_p, num_e))
-
-            for j in range(num_e - 1):
-                de = self.e[j + 1] - self.e[j]
-
-                s = (-1) ** j * self.E
-
-                for i in range(num_p):
-                    self.y[i, j + 1] += self.h.step_response(de, i) * s
-                    self.y[i, j + 1] += self.h.natural_response(de, self.y[:, j], i)
-
     def append(self, e):
         """
         Append a new edge to the binary wave.
@@ -67,22 +49,7 @@ class BinaryWave:
         Arguments:
             e: The time point where the signal changes value.
         """
-        num_p = len(self.h.p)
-
-        y = np.zeros((num_p, 1))
-
-        j = len(self.e) - 1
-
-        de = e - self.e[j]
-
-        s = (-1) ** j * self.E
-
-        for i in range(num_p):
-            y[i, 0] += self.h.step_response(de, i) * s
-            y[i, 0] += self.h.natural_response(de, self.y[:, j], i)
-
         self.e = np.append(self.e, e)
-        self.y = np.append(self.y, y, axis=1)
 
     def __truediv__(self, other):
         """
@@ -121,29 +88,9 @@ class BinaryWave:
         Arguments:
             t: Array of time points to evaluate the binary wave at.
         """
-        y = np.zeros_like(t)
+        y = -self.h.step_response(t)  * self.E
 
-        for i, ti in enumerate(t):
-            if ti < self.e[0]:
-                # If the time point is before the first edge, the output is zero
-                continue
-            elif ti >= self.e[-1]:
-                # If the time point is after the last edge, do not search for the correct edge
-                j = len(self.e) - 1
-            else:
-                # Search for the correct edge using a while loop
-                j = 0
-
-                while j != len(self.e) - 1 and not (
-                    self.e[j] <= ti and ti < self.e[j + 1]
-                ):
-                    j += 1
-
-            de = ti - self.e[j]
-
-            s = (-1) ** j * self.E
-
-            y[i] += self.h.step_response(de) * s
-            y[i] += self.h.natural_response(de, self.y[:, j])
+        for i, e_i in enumerate(self.e):
+            y += self.h.step_response(t - e_i) * 2 * (-1) ** i * self.E
 
         return y

@@ -28,30 +28,24 @@ class DeltaSigmaModulator:
     def step(self):
         self.t += self.q.next(self.simulate_filter)
 
+        self.y_v.append(self.t)
+
     def reset(self):
         # Reset the current time, filter state, and quantizer state
         self.t = 0.0
         self.q.reset()
-
-        # Adjust the initial filter state to ensure the first quantization event occurs close to t=0
-        a = self.simulate_filter(0)[0]
-
-        self.y_v.y[0, 0] -= a
 
     def simulate(self, u, t=None, n=None, run=True):
         # List of inputs
         self.u = np.atleast_1d(u)
         # Loop filter outputs
         self.y_u = np.array([u_i.filter(self.h_u) for u_i in self.u])
-        self.y_v = BinaryWave([0]).filter(self.h_v)
+        self.y_v = BinaryWave().filter(self.h_v)
 
         self.reset()
 
         while run:
             self.step()
-
-            # This also updates the corresponding filter output
-            self.y_v.append(self.t)
 
             if t is not None and self.t >= t:
                 run = False
