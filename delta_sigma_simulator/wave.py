@@ -27,7 +27,7 @@ class SineWave:
 
 
 class BinaryWave:
-    def __init__(self, e=None, E=1.0, h=None, y=None):
+    def __init__(self, e=None, E=1.0, h=None):
         """
         Arguments:
             e: Array of time points where the signal changes value.
@@ -35,12 +35,49 @@ class BinaryWave:
             h: Filter to apply to the binary wave. If None, no filtering is applied.
         """
         if e is None:
-            self.e = np.array([0.0])
+            e = np.array([0.0])
         else:
-            self.e = np.atleast_1d(e)
+            e = np.atleast_1d(np.asarray(e, dtype=np.float64))
 
         self.E = E
         self.h = h if h is not None else FilterUnit()
+
+        # Edge times and the state of the filter at the end of each transition, stored
+        # in buffers that grow geometrically. Keeping the state avoids having to
+        # evaluate the contribution of every transition each time the wave is
+        # evaluated: the response after a transition is the step response due to that
+        # transition, plus the natural response due to the state at the end of the
+        # previous transition.
+        self._n = 0
+        self._e = np.zeros(max(len(e), 1))
+        self._x = np.zeros((len(self._e), self.h.state_size))
+
+        for e_i in e:
+            self.append(e_i)
+
+    @property
+    def e(self):
+        """
+        Time points where the signal changes value.
+        """
+        return self._e[: self._n]
+
+    @property
+    def x(self):
+        """
+        State of the filter at the end of each transition.
+        """
+        return self._x[: self._n]
+
+    def _grow(self):
+        e = np.zeros(2 * len(self._e))
+        e[: self._n] = self._e[: self._n]
+
+        x = np.zeros((len(e), self.h.state_size))
+        x[: self._n] = self._x[: self._n]
+
+        self._e = e
+        self._x = x
 
     def append(self, e):
         """
@@ -49,7 +86,24 @@ class BinaryWave:
         Arguments:
             e: The time point where the signal changes value.
         """
-        self.e = np.append(self.e, e)
+        if self._n > 0 and e < self._e[self._n - 1]:
+            raise ValueError("Edges must be appended in chronological order.")
+
+        if self._n == len(self._e):
+            self._grow()
+
+        # State due to the transitions up to and including this one
+        x = 2 * (-1) ** self._n * self.E * self.h.step_state
+
+        if self._n > 0:
+            x = x + self.h.state_propagate(
+                e - self._e[self._n - 1], self._x[self._n - 1]
+            )
+
+        self._e[self._n] = e
+        self._x[self._n] = x
+
+        self._n += 1
 
     def __truediv__(self, other):
         """
@@ -58,7 +112,7 @@ class BinaryWave:
         Arguments:
             other: The scalar to divide by.
         """
-        return BinaryWave(self.e, self.E / other, self.h, self.y / other)
+        return BinaryWave(self.e, self.E / other, self.h)
 
     def delay(self, tau):
         """
@@ -67,7 +121,7 @@ class BinaryWave:
         Arguments:
             tau: The amount of time to delay the binary wave, in seconds.
         """
-        return BinaryWave(self.e + tau, self.E, self.h, self.y)
+        return BinaryWave(self.e + tau, self.E, self.h)
 
     def filter(self, h):
         """
@@ -88,9 +142,17 @@ class BinaryWave:
         Arguments:
             t: Array of time points to evaluate the binary wave at.
         """
-        y = -self.h.step_response(t)  * self.E
+        t = np.asarray(t, dtype=np.float64)
 
-        for i, e_i in enumerate(self.e):
-            y += self.h.step_response(t - e_i) * 2 * (-1) ** i * self.E
+        # Index of the last transition at or before t, or -1 before the first one
+        i = np.searchsorted(self.e, t, side="right") - 1
 
-        return y
+        j = np.maximum(i, 0)
+
+        y = self.h.state_response(np.where(i < 0, 0.0, t - self._e[j]), self._x[j])
+        y = np.where(i < 0, 0.0, y)
+
+        # Reference step at t = 0, which sets the initial value of the wave
+        y = y - self.E * np.asarray(self.h.step_response(t)).reshape(t.shape)
+
+        return y[()] if y.ndim == 0 else y
