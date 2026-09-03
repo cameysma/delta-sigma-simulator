@@ -38,8 +38,14 @@ class Filter:
         num_eval = self.num(s)
         den_eval = self.den(s)
 
+        # - The response is unbounded where s coincides with a pole, which is reported as
+        #   a large value instead. The denominator itself is not a measure for this, as it
+        #   is the product of all pole distances and can be small for a high-order filter
+        #   with a low corner frequency.
+        at_pole = np.any(np.isclose(s[:, None], self.p[None, :]), axis=1)
+
         with np.errstate(divide="ignore", invalid="ignore"):
-            return np.where(np.isclose(den_eval, 0), 1e9, self.k * num_eval / den_eval)
+            return np.where(at_pole, 1e9, self.k * num_eval / den_eval)
 
     def impulse_response(self, t, n=0):
         # The response is zero before t = 0, so the exponentials are only evaluated for
