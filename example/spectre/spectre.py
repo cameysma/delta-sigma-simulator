@@ -31,11 +31,17 @@ from testbench import (
 HERE = os.path.dirname(os.path.abspath(__file__))
 SPECTRE = os.environ.get("SPECTRE", "spectre")
 
-# Settings of a typical transient simulation, and a tightened set
-MODERATE = {"errpreset": "moderate", "reltol": 1e-3, "mstep": 1e-2, "trise": 1e-3,
-            "ttol": 1e-9}
-CONSERVATIVE = {"errpreset": "conservative", "reltol": 1e-5, "mstep": 1e-2,
-                "trise": 1e-7, "ttol": 1e-9}
+# Transient settings. A transient simulation cannot represent an ideal step, so
+# the output of the quantizer has a finite transition time, and that modelling
+# choice turns out to matter more than the tolerances do: the two variants below
+# differ in it alone.
+SETTINGS = {"errpreset": "conservative", "reltol": 1e-5, "mstep": 1e-2, "ttol": 1e-9}
+
+SHARP = dict(SETTINGS, trise=1e-7)  # an edge as close to a step as is practical
+SLOW = dict(SETTINGS, trise=1e-3)  # an edge of a thousandth of a period
+
+# The defaults of the simulator, for the comparison of the error presets
+MODERATE = dict(SETTINGS, errpreset="moderate", reltol=1e-3, trise=1e-7)
 
 
 def read_psfascii(path, signal):
@@ -84,10 +90,9 @@ def run(tag, uamp=0.1, phase=0.0, n_settle=N_SETTLE, n_period=N_PERIOD, **settin
     """
     Simulate the testbench in Spectre and analyse the demodulated output.
 
-    The keyword arguments override the entries of MODERATE, which are the
-    defaults of the simulator.
+    The keyword arguments override the entries of SHARP.
     """
-    p = dict(MODERATE, **settings)
+    p = dict(SHARP, **settings)
 
     path = os.path.join(HERE, f"asdm_{tag}.scs")
     raw = os.path.join(HERE, f"raw_{tag}")

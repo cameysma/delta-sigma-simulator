@@ -18,6 +18,9 @@ Every measurement is repeated for each of the input phases in
 of them, while the numerical error of the transient solver does not repeat, so
 the experiments report the spread over those repetitions as well as the mean.
 
+The two Spectre variants differ only in the transition time of the quantizer
+output, which a transient simulation cannot make zero.
+
 Each experiment writes a CSV next to this script.
 """
 
@@ -33,8 +36,8 @@ AMPLITUDES = [0.3, 0.1, 0.03, 0.01, 0.003]
 
 FLOWS = {
     "event_driven": lambda tag, **kw: reference.run(**kw),
-    "conservative": lambda tag, **kw: spectre.run(tag, **dict(spectre.CONSERVATIVE, **kw)),
-    "moderate": lambda tag, **kw: spectre.run(tag, **dict(spectre.MODERATE, **kw)),
+    "sharp_edge": lambda tag, **kw: spectre.run(tag, **dict(spectre.SHARP, **kw)),
+    "slow_edge": lambda tag, **kw: spectre.run(tag, **dict(spectre.SLOW, **kw)),
 }
 
 
@@ -116,7 +119,7 @@ def cost():
     columns = {"mstep": [], "steps": [], "time": [], "oip3": [], "error": []}
     for mstep, reltol in [(1e-2, 1e-5), (1e-3, 1e-7), (1e-4, 1e-9)]:
         runs = repeat(
-            "conservative", f"cost_{mstep}", uamp=0.01, mstep=mstep, reltol=reltol
+            "sharp_edge", f"cost_{mstep}", uamp=0.01, mstep=mstep, reltol=reltol
         )
         values = report(f"mstep={mstep:g}", runs)
         error = np.abs(values - exact.mean())
