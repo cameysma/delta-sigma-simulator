@@ -14,6 +14,7 @@ module quantizer(vin, vout);
     parameter real delta = 0.0;     // hysteresis
     parameter real td = 0.0;        // delay
     parameter real tr = 1e-9;       // transition time of the output
+    parameter real ttol = 1e-9;     // time tolerance on the threshold crossings
 
     integer state;
 
@@ -22,8 +23,8 @@ module quantizer(vin, vout);
         // only fire on a later crossing
         @(initial_step) state = (V(vin) >= 0) ? +1 : -1;
 
-        @(cross(V(vin) - delta, +1)) state = +1;
-        @(cross(V(vin) + delta, -1)) state = -1;
+        @(cross(V(vin) - delta, +1, ttol)) state = +1;
+        @(cross(V(vin) + delta, -1, ttol)) state = -1;
 
         V(vout) <+ transition(state, td, tr, tr);
     end

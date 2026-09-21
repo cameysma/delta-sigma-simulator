@@ -10,8 +10,13 @@ amplitude  the extracted third-order intercept point as a function of the
            input amplitude, which shows where each simulator stops resolving
            the third harmonic
 cost       the time step, the number of state updates and the run time needed
-           by Spectre to reach the reference result at an input amplitude of
-           0.01
+           by Spectre to approach the reference result at an input amplitude
+           of 0.01
+
+Every measurement is repeated for each of the input phases in
+`testbench.PHASES`. The event-driven simulator returns the same result for all
+of them, while the numerical error of the transient solver does not repeat, so
+the experiments report the spread over those repetitions as well as the mean.
 
 Each experiment writes a CSV next to this script.
 """
@@ -22,80 +27,114 @@ import numpy as np
 
 import reference
 import spectre
-from testbench import floor, write_csv
+from testbench import PHASES, floor, write_csv
 
 AMPLITUDES = [0.3, 0.1, 0.03, 0.01, 0.003]
+
+FLOWS = {
+    "event_driven": lambda tag, **kw: reference.run(**kw),
+    "conservative": lambda tag, **kw: spectre.run(tag, **dict(spectre.CONSERVATIVE, **kw)),
+    "moderate": lambda tag, **kw: spectre.run(tag, **dict(spectre.MODERATE, **kw)),
+}
 
 
 def dbfs(u):
     return 20 * np.log10(u)
 
 
+def repeat(flow, tag, **kw):
+    """Run one flow once for every phase of `testbench.PHASES`."""
+    return [FLOWS[flow](f"{tag}_{i}", phase=p, **kw) for i, p in enumerate(PHASES)]
+
+
+def report(name, runs, key=lambda r: r["oip3"]):
+    values = np.array([key(r) for r in runs])
+    print(
+        f"  {name:>13} mean={values.mean():8.3f} min={values.min():8.3f} "
+        f"max={values.max():8.3f} spread={np.ptp(values):7.3f}"
+    )
+    return values
+
+
 def spectrum():
     print("spectrum at an input amplitude of 0.1")
 
-    results = {
-        "event_driven": reference.run(0.1),
-        "conservative": spectre.run("spectrum_conservative", **spectre.CONSERVATIVE),
-        "moderate": spectre.run("spectrum_moderate", **spectre.MODERATE),
-    }
-
-    for name, r in results.items():
+    columns = {}
+    for flow in FLOWS:
+        runs = repeat(flow, f"spectrum_{flow}", uamp=0.1)
+        report(flow, runs)
+        report(flow + " floor", runs, floor)
         print(
-            f"  {name:>13} OIP3={r['oip3']:7.3f} dBFS floor={floor(r):8.2f} dBFS "
-            f"updates={r['steps']:>9} time={r['time']:6.2f} s"
+            f"  {flow:>13} updates={runs[0]['steps']:>9} "
+            f"time={np.mean([r['time'] for r in runs]):6.2f} s"
         )
+        # The spectra of the repetitions differ only in their floor, so the
+        # first one is representative
+        columns[flow] = runs[0]["dbfs"]
+        frequency = runs[0]["f_over_fu"]
 
-    f = results["event_driven"]["f_over_fu"]
-    inside = f <= 4.0001
+    # Keep the band up to four times the input frequency, where the
+    # demodulation filter has not yet attenuated the output
+    inside = frequency <= 4.0001
     write_csv(
         "spectrum.csv",
-        {"f_over_fu": f[inside], **{n: r["dbfs"][: len(f)][inside] for n, r in results.items()}},
+        {"f_over_fu": frequency[inside], **{n: v[inside] for n, v in columns.items()}},
     )
 
 
 def amplitude():
     print("third-order intercept point versus input amplitude")
 
-    columns = {"u_dbfs": [], "event_driven": [], "conservative": [], "moderate": []}
-    for u in AMPLITUDES:
-        runs = {
-            "event_driven": reference.run(u),
-            "conservative": spectre.run(f"amplitude_conservative_{u}", uamp=u, **spectre.CONSERVATIVE),
-            "moderate": spectre.run(f"amplitude_moderate_{u}", uamp=u, **spectre.MODERATE),
-        }
-        columns["u_dbfs"].append(dbfs(u))
-        for name, r in runs.items():
-            columns[name].append(r["oip3"])
-        print(
-            f"  U={dbfs(u):7.2f} dBFS "
-            + " ".join(f"{n}={r['oip3']:7.3f}" for n, r in runs.items())
-        )
+    columns = {"u_dbfs": [dbfs(u) for u in AMPLITUDES]}
+    for flow in FLOWS:
+        mean, low, high = [], [], []
+        for u in AMPLITUDES:
+            values = report(
+                f"{flow} U={dbfs(u):.1f}",
+                repeat(flow, f"amplitude_{flow}_{u}", uamp=u),
+            )
+            mean.append(values.mean())
+            low.append(values.min())
+            high.append(values.max())
+        columns[flow] = mean
+        columns[flow + "_min"] = low
+        columns[flow + "_max"] = high
 
     write_csv("amplitude.csv", columns)
 
 
 def cost():
-    print("cost of resolving the third harmonic at an input amplitude of 0.01")
+    print("cost of approaching the reference result at an input amplitude of 0.01")
 
-    r = reference.run(0.01)
+    runs = repeat("event_driven", "cost_reference", uamp=0.01)
+    exact = report("event-driven", runs)
     print(
-        f"  event-driven      OIP3={r['oip3']:7.3f} dBFS "
-        f"updates={r['steps']:>9} time={r['time']:7.2f} s"
+        f"  {'event-driven':>13} updates={runs[0]['steps']:>9} "
+        f"time={np.mean([r['time'] for r in runs]):7.2f} s"
     )
 
-    columns = {"mstep": [], "reltol": [], "steps": [], "time": [], "oip3": []}
+    columns = {"mstep": [], "steps": [], "time": [], "oip3": [], "error": []}
     for mstep, reltol in [(1e-2, 1e-5), (1e-3, 1e-7), (1e-4, 1e-9)]:
-        s = spectre.run(
-            f"cost_{mstep}",
-            uamp=0.01,
-            **dict(spectre.CONSERVATIVE, mstep=mstep, reltol=reltol),
+        runs = repeat(
+            "conservative", f"cost_{mstep}", uamp=0.01, mstep=mstep, reltol=reltol
         )
-        for name, value in zip(columns, [mstep, reltol, s["steps"], s["time"], s["oip3"]]):
+        values = report(f"mstep={mstep:g}", runs)
+        error = np.abs(values - exact.mean())
+        for name, value in zip(
+            columns,
+            [
+                mstep,
+                runs[0]["steps"],
+                np.mean([r["time"] for r in runs]),
+                values.mean(),
+                error.max(),
+            ],
+        ):
             columns[name].append(value)
         print(
-            f"  mstep={mstep:<7g} reltol={reltol:<7g} OIP3={s['oip3']:7.3f} dBFS "
-            f"steps={s['steps']:>9} time={s['time']:7.2f} s"
+            f"  {'':>13} steps={runs[0]['steps']:>9} "
+            f"time={np.mean([r['time'] for r in runs]):7.2f} s "
+            f"worst error={error.max():6.3f} dB"
         )
 
     write_csv("cost.csv", columns)

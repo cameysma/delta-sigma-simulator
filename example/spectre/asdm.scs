@@ -13,16 +13,16 @@ global 0
 
 ahdl_include "quantizer.va"
 
-parameters fu={fu} uamp={uamp}
+parameters fu={fu} uamp={uamp} phase={phase}
 parameters rr={rr} cc={cc}
 parameters delta={delta}
-parameters trise={trise}
+parameters trise={trise} ttol={ttol}
 
-Vu (u 0)      vsource type=sine ampl=uamp freq=fu
+Vu (u 0)      vsource type=sine ampl=uamp freq=fu sinephase=phase
 Be (e 0)      bsource v=V(u)-V(v)
 R1 (e y)      resistor r=rr
 C1 (y 0)      capacitor c=cc
-X1 (y v)      quantizer delta=delta tr=trise
+X1 (y v)      quantizer delta=delta tr=trise ttol=ttol
 
 Ed (vd 0 v 0) svcvs poles={poles} gain=1
 

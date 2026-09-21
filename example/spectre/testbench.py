@@ -23,10 +23,19 @@ ORDER = 10  # order of the demodulation filter
 N_SETTLE = 16  # periods of the input discarded while the filter settles
 N_PERIOD = 16  # periods of the input that are analysed
 
+# Phases of the input, in degrees, used as independent repetitions of the same
+# measurement. The result of the event-driven simulator does not depend on
+# them, while the numerical error of a transient solver does.
+PHASES = (0.0, 72.0, 144.0, 216.0, 288.0)
+
 FU = F0 / K  # input frequency
 FG = BETA0 * F0  # corner frequency of the loop filter
 FC = 4 * FU  # corner frequency of the demodulation filter
-FS = 16 * FC  # rate at which the demodulated output is sampled
+FS = 64 * FC  # rate at which the demodulated output is sampled
+#   The numerical noise of a transient solver extends far beyond the band of
+#   interest, so the rate at which the demodulated output is sampled sets how
+#   much of it folds back into that band. It is kept well above the corner
+#   frequency of the demodulation filter for that reason.
 
 # Hysteresis for which the modulator self-oscillates at exactly f0
 DELTA = A_DC * math.tanh(math.pi * BETA0 / 2)

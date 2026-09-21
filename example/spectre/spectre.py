@@ -32,8 +32,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SPECTRE = os.environ.get("SPECTRE", "spectre")
 
 # Settings of a typical transient simulation, and a tightened set
-MODERATE = {"errpreset": "moderate", "reltol": 1e-3, "mstep": 1e-2, "trise": 1e-3}
-CONSERVATIVE = {"errpreset": "conservative", "reltol": 1e-5, "mstep": 1e-2, "trise": 1e-7}
+MODERATE = {"errpreset": "moderate", "reltol": 1e-3, "mstep": 1e-2, "trise": 1e-3,
+            "ttol": 1e-9}
+CONSERVATIVE = {"errpreset": "conservative", "reltol": 1e-5, "mstep": 1e-2,
+                "trise": 1e-7, "ttol": 1e-9}
 
 
 def read_psfascii(path, signal):
@@ -55,7 +57,7 @@ def read_psfascii(path, signal):
     return np.asarray(t), np.asarray(v)
 
 
-def netlist(uamp, n_settle, n_period, settings):
+def netlist(uamp, phase, n_settle, n_period, settings):
     """Fill in the netlist template with the requested settings."""
     with open(os.path.join(HERE, "asdm.scs")) as f:
         template = f.read()
@@ -67,6 +69,7 @@ def netlist(uamp, n_settle, n_period, settings):
     return template.format(
         fu=FU,
         uamp=uamp,
+        phase=phase,
         rr=RR,
         cc=CC,
         delta=DELTA,
@@ -77,7 +80,7 @@ def netlist(uamp, n_settle, n_period, settings):
     )
 
 
-def run(tag, uamp=0.1, n_settle=N_SETTLE, n_period=N_PERIOD, **settings):
+def run(tag, uamp=0.1, phase=0.0, n_settle=N_SETTLE, n_period=N_PERIOD, **settings):
     """
     Simulate the testbench in Spectre and analyse the demodulated output.
 
@@ -91,7 +94,7 @@ def run(tag, uamp=0.1, n_settle=N_SETTLE, n_period=N_PERIOD, **settings):
     log = os.path.join(HERE, f"log_{tag}.txt")
 
     with open(path, "w") as f:
-        f.write(netlist(uamp, n_settle, n_period, p))
+        f.write(netlist(uamp, phase, n_settle, n_period, p))
 
     start = time.time()
     with open(log, "w") as f:

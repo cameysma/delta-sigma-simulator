@@ -6,6 +6,8 @@ are compared: it contains no time step, so its accuracy is limited only by the
 precision of the arithmetic.
 """
 
+import cmath
+import math
 import os
 import sys
 import time
@@ -37,7 +39,7 @@ from testbench import (  # noqa: E402
 )
 
 
-def run(uamp=0.1, n_settle=N_SETTLE, n_period=N_PERIOD):
+def run(uamp=0.1, phase=0.0, n_settle=N_SETTLE, n_period=N_PERIOD):
     """Simulate the testbench and analyse the demodulated output."""
     quantizer = QuantizerDelayHysteresis(0.0, DELTA)
     # Bracket the threshold crossings on a tenth of a self-oscillation period
@@ -46,7 +48,9 @@ def run(uamp=0.1, n_settle=N_SETTLE, n_period=N_PERIOD):
 
     start = time.perf_counter()
 
-    v = modulator.simulate([SineWave([0, uamp], FU)], t=(n_settle + n_period) / FU)
+    # A sine with the given phase, in the same convention as the netlist
+    phasor = uamp * cmath.exp(1j * (math.radians(phase) - math.pi / 2))
+    v = modulator.simulate([SineWave([0, phasor], FU)], t=(n_settle + n_period) / FU)
 
     t = n_settle / FU + np.arange(0.0, n_period / FU - 0.5 / FS, 1 / FS)
     x = v.filter(FilterButterworth(ORDER, FC))(t)

@@ -21,14 +21,14 @@ precision.
 
 ## Files
 
-| file            | purpose                                                       |
-| --------------- | ------------------------------------------------------------- |
-| `testbench.py`  | the testbench parameters and the analysis shared by both flows |
-| `reference.py`  | runs the testbench with the event-driven simulator             |
-| `spectre.py`    | runs the testbench in Spectre                                  |
-| `compare.py`    | the three experiments below, writing a CSV each                |
-| `asdm.scs`      | the Spectre netlist, with the transient settings left open     |
-| `quantizer.va`  | the quantizer, in Verilog-A                                    |
+| file           | purpose                                                       |
+| -------------- | ------------------------------------------------------------- |
+| `testbench.py` | the testbench parameters and the analysis shared by both flows |
+| `reference.py` | runs the testbench with the event-driven simulator             |
+| `spectre.py`   | runs the testbench in Spectre                                  |
+| `compare.py`   | the three experiments below, writing a CSV each                |
+| `asdm.scs`     | the Spectre netlist, with the transient settings left open     |
+| `quantizer.va` | the quantizer, in Verilog-A                                    |
 
 In the netlist, the threshold crossings are detected with a `cross` event, and
 the demodulation filter is part of the netlist as a Laplace element, so that
@@ -36,6 +36,23 @@ the binary output is filtered before it is strobed and out-of-band content
 cannot alias into the band of interest. The modulator has no stable operating
 point, so the transient starts from an initial condition rather than from a DC
 solution.
+
+Two details of the Spectre side turn out to matter as much as the transient
+tolerances themselves.
+
+The first is the time tolerance on the `cross` event, `ttol`, which is what
+forces the solver to place a time point on the threshold crossing. At the
+default transient settings it dominates the result: with `ttol` at `1e-9 / f0`
+the floor is -172 dBFS and the intercept point is within 0.3 dB of the
+reference, while with a loose tolerance the floor rises to -144 dBFS and the
+intercept point scatters over 7 dB.
+
+The second is that the numerical error does not repeat. Every measurement is
+therefore run once for each phase in `testbench.PHASES`, which leaves the
+modulator itself untouched but gives the solver a different error pattern. The
+event-driven simulator returns the same result for all of them, to every digit;
+the Spectre results scatter, and the scatter grows as the third harmonic
+approaches the floor.
 
 ## Running
 
@@ -64,39 +81,42 @@ quantizer essentially instantaneous.
 
 Measured with Spectre 25.1 on a single machine, with sixteen periods of the
 input to let the demodulation filter settle and sixteen further periods
-analysed.
+analysed, for five phases of the input.
 
 At an input amplitude of 0.1, all three simulations return the same
-fundamental, −20.00 dBFS, and the same third harmonic, −138.5 dBFS. They
-differ only in the floor in between.
+fundamental, -20.00 dBFS, and the same third harmonic, -138.5 dBFS. They
+differ in the floor in between, and in whether they return the same answer
+twice.
 
-| simulator            | state updates | run time | A_oip3 [dBFS] | floor [dBFS] |
-| -------------------- | ------------- | -------- | ------------- | ------------ |
-| event-driven         | 7 833 events  | 7.4 s    | 36.25         | −254         |
-| Spectre conservative | 524 950 steps | 4.2 s    | 36.25         | −204         |
-| Spectre moderate     | 422 977 steps | 3.2 s    | 36.21         | −171         |
+| simulator            | state updates | run time | A_oip3 [dBFS] | spread [dB] | floor [dBFS] |
+| -------------------- | ------------- | -------- | ------------- | ----------- | ------------ |
+| event-driven         | 7.8e3 events  | 7.6 s    | 36.253        | 0.000       | -253         |
+| Spectre conservative | 5.3e5 steps   | 4.2 s    | 36.251        | 0.005       | -205         |
+| Spectre moderate     | 4.2e5 steps   | 3.3 s    | 36.157        | 0.255       | -172         |
 
 Since the third harmonic falls three times as fast as the input amplitude, it
-meets that floor as soon as the input is reduced, and each simulation follows
-the correct curve only as long as it stays above its own floor.
+meets that floor as soon as the input is reduced. The mean stays close to the
+correct value for a while, but the spread over the five phases does not, and it
+is the spread that shows where each simulator stops being usable. The table
+gives the mean, with the spread in brackets.
 
-| U [dBFS] | event-driven | conservative | moderate |
-| -------- | ------------ | ------------ | -------- |
-| −10.46   | 35.82        | 35.82        | 35.81    |
-| −20.00   | 36.25        | 36.25        | 36.21    |
-| −30.46   | 36.30        | 36.31        | 40.31    |
-| −40.00   | 36.31        | 35.33        | 26.20    |
-| −50.46   | 36.12        | 17.52        | 8.83     |
+| U [dBFS] | event-driven  | conservative   | moderate      |
+| -------- | ------------- | -------------- | ------------- |
+| -10.46   | 35.82 (0.000) | 35.82 (0.000)  | 35.80 (0.008) |
+| -20.00   | 36.25 (0.000) | 36.25 (0.005)  | 36.16 (0.255) |
+| -30.46   | 36.30 (0.000) | 36.31 (0.113)  | 34.85 (5.880) |
+| -40.00   | 36.31 (0.010) | 36.70 (12.667) | 25.31 (9.046) |
+| -50.46   | 36.27 (0.801) | 16.59 (0.737)  | 10.99 (7.241) |
 
-The remedy in a circuit simulator is a smaller time step. At an input
-amplitude of 0.01, where the conservative settings are 1 dB off, it takes about
-a thousand time steps per self-oscillation period to reach the reference
-result. Reducing the time step by another decade does not improve it any
-further, since the round-off accumulated over so many steps then takes over.
+The remedy in a circuit simulator is a smaller time step. At an input amplitude
+of 0.01, where the reference value is 36.31 dBFS, it takes about a thousand
+time steps per self-oscillation period to get within 0.1 dB. Reducing the time
+step by another decade makes the result worse rather than better, since the
+round-off accumulated over so many steps then takes over.
 
-| simulator    | maximum time step | state updates | run time | A_oip3 [dBFS] |
-| ------------ | ----------------- | ------------- | -------- | ------------- |
-| Spectre      | 1e-2 / f0         | 5.3e5         | 4.3 s    | 35.33         |
-| Spectre      | 1e-3 / f0         | 4.0e6         | 30 s     | 36.33         |
-| Spectre      | 1e-4 / f0         | 3.9e7         | 287 s    | 36.27         |
-| event-driven | —                 | 7.9e3         | 8.0 s    | 36.31         |
+| simulator    | maximum time step | state updates | run time | worst error |
+| ------------ | ----------------- | ------------- | -------- | ----------- |
+| Spectre      | 1e-2 / f0         | 5.3e5         | 4.2 s    | 8.40 dB     |
+| Spectre      | 1e-3 / f0         | 4.0e6         | 30 s     | 0.08 dB     |
+| Spectre      | 1e-4 / f0         | 3.9e7         | 290 s    | 0.30 dB     |
+| event-driven | ---               | 7.9e3         | 7.5 s    | 0.01 dB     |
