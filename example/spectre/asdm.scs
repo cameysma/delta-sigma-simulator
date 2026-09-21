@@ -1,0 +1,37 @@
+// Asynchronous sigma-delta modulator with a first-order low-pass loop filter,
+// for comparison against the event-driven simulator.
+//
+// The self-oscillation frequency is normalized to f0 = 1 Hz. The loop filter
+// has a DC gain A_DC = 1 and a corner frequency beta0 * f0, and the hysteresis
+// of the quantizer is set to tanh(pi * beta0 / 2), so that the modulator
+// self-oscillates at f0.
+//
+// The binary output is demodulated inside the netlist by a Butterworth
+// low-pass filter at 4 fu, so that the strobed output cannot alias.
+simulator lang=spectre
+global 0
+
+ahdl_include "quantizer.va"
+
+parameters fu={fu} uamp={uamp}
+parameters rr={rr} cc={cc}
+parameters delta={delta}
+parameters trise={trise}
+
+Vu (u 0)      vsource type=sine ampl=uamp freq=fu
+Be (e 0)      bsource v=V(u)-V(v)
+R1 (e y)      resistor r=rr
+C1 (y 0)      capacitor c=cc
+X1 (y v)      quantizer delta=delta tr=trise
+
+Ed (vd 0 v 0) svcvs poles={poles} gain=1
+
+// The modulator has no stable operating point, so the transient starts from an
+// initial condition instead of a DC solution
+ic y=0
+
+simulatorOptions options reltol={reltol}
+
+save vd
+
+tran tran stop={tstop} maxstep={mstep} strobeperiod={strobe} strobedelay=0 errpreset={errpreset} skipdc=yes

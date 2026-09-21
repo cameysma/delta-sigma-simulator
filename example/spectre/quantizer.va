@@ -1,0 +1,30 @@
+`include "constants.vams"
+`include "disciplines.vams"
+
+// Binary quantizer with hysteresis and delay.
+//
+// The output switches to +1 when the input rises above +delta and to -1 when
+// it falls below -delta, after a delay td. The transition time tr is finite,
+// since an ideal step is not representable in a transient simulation.
+module quantizer(vin, vout);
+    input vin;
+    output vout;
+    electrical vin, vout;
+
+    parameter real delta = 0.0;     // hysteresis
+    parameter real td = 0.0;        // delay
+    parameter real tr = 1e-9;       // transition time of the output
+
+    integer state;
+
+    analog begin
+        // The operating point sets the initial state, since the cross events
+        // only fire on a later crossing
+        @(initial_step) state = (V(vin) >= 0) ? +1 : -1;
+
+        @(cross(V(vin) - delta, +1)) state = +1;
+        @(cross(V(vin) + delta, -1)) state = -1;
+
+        V(vout) <+ transition(state, td, tr, tr);
+    end
+endmodule
